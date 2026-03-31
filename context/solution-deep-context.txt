@@ -1,0 +1,158 @@
+Bridging Generic Financial Messages On-Chain
+Using AWS + Chainlink CRE (Mint / Burn Model)
+
+OVERVIEW
+
+This architecture enables generic financial messages from traditional financial systems (e.g., SWIFT MT/MX, ISO 20022, or proprietary bank formats) to deterministically and securely trigger on-chain minting and/or burning of tokenized assets.
+
+AWS acts as the Web2 ingestion and authorization layer.
+Chainlink CRE acts as the Web3 orchestration layer.
+Smart contracts are the final source of truth via on-chain signature verification.
+
+Core principle:
+Financial messages are never executed on-chain.
+They are transformed off-chain into a canonical, signed settlement instruction that smart contracts independently verify and execute.
+
+
+KEY DESIGN PRINCIPLES
+	1.	Message-format agnostic
+
+	•	Accepts any financial message format
+	•	SWIFT and ISO 20022 are examples, not requirements
+	•	Parsing is limited to a minimal shared semantic set:
+	•	amount
+	•	parties
+	•	value time
+	•	reference
+
+	2.	Canonical instruction, not raw message
+
+	•	Raw messages remain fully off-chain
+	•	Each message is normalized into a Canonical Settlement Instruction (CSI) containing:
+	•	deterministic instructionId
+	•	messageDigest (hash of raw payload)
+	•	asset, amount, parties, timestamps
+	•	settlement intent (mint-only or burn+mint)
+
+	3.	Explicit authorization via cryptographic signature
+
+	•	AWS signs the CSI using an institutional signing key
+	•	HSM / KMS in production environments
+	•	Signature uses EIP-712 typed data
+	•	Smart contracts verify the signature and act as the final authority
+
+	4.	On-chain enforcement, off-chain orchestration
+
+	•	AWS:
+	•	message ingestion
+	•	normalization
+	•	signing
+	•	audit storage
+	•	Chainlink CRE:
+	•	workflow orchestration
+	•	API → chain execution
+	•	confirmation handling
+	•	status callbacks
+	•	Smart contracts:
+	•	signature verification
+	•	idempotency checks
+	•	mint / burn execution
+
+	5.	Idempotency and auditability by construction
+
+	•	Each instruction executes exactly once per chain
+	•	Replays, retries, or duplicates are rejected on-chain
+	•	Full traceability across AWS, CRE, and on-chain events
+
+END-TO-END FLOW
+	1.	Message ingestion (AWS)
+
+	•	Financial message (e.g., SWIFT MT103) is received
+	•	Message is stored off-chain
+	•	messageDigest is computed
+
+	2.	Normalization & instruction creation (AWS)
+
+	•	Message is mapped into a Canonical Settlement Instruction
+	•	Deterministic rules ensure consistent output
+	•	instructionId is derived so retries reuse the same ID
+
+	3.	Institutional signing (AWS)
+
+	•	CSI is signed using EIP-712 typed data
+	•	Produces a cryptographic authorization verifiable on-chain
+
+	4.	Workflow execution (Chainlink CRE)
+
+	•	CRE workflow:
+	•	fetches pending signed CSIs from AWS
+	•	submits on-chain transactions
+	•	waits for confirmations
+	•	reports execution results back to AWS
+
+	5.	On-chain settlement (Smart Contracts)
+
+	•	SettlementConsumer contract:
+	•	verifies EIP-712 signature against on-chain key registry
+	•	checks expiry and idempotency
+	•	executes token logic:
+	•	mint-only → issue new value
+	•	burn + mint → reallocate existing value
+	•	emits an immutable settlement event
+
+MINT-ONLY VS BURN + MINT SEMANTICS
+
+Mint-Only (Issuance)
+	•	Used when new value enters the system
+	•	Examples:
+	•	incoming wire
+	•	deposit creation
+	•	stablecoin issuance
+	•	On-chain effect:
+	•	total supply increases
+	•	Trust model:
+	•	issuer-controlled
+	•	reconciled off-chain
+
+Burn + Mint (Reallocation)
+	•	Used when existing value moves within the system
+	•	Examples:
+	•	internal transfers
+	•	balance migration
+	•	cross-ledger movement
+	•	On-chain effect:
+	•	total supply conserved
+	•	Provides stronger on-chain invariants and auditability
+
+Both models use the same infrastructure.
+Only the contract execution logic differs.
+
+WHY CHAINLINK CRE IS CENTRAL
+
+Chainlink CRE provides:
+	•	deterministic orchestration across Web2 and Web3
+	•	secure API and EVM execution
+	•	workflow-level retries and observability
+	•	separation of execution logic from authorization logic
+
+CRE does not determine trust.
+Trust is enforced entirely on-chain through signature verification and contract rules.
+
+SECURITY & TRUST MODEL
+	•	Raw financial messages never touch the blockchain
+	•	Only hashes and signed instructions are referenced on-chain
+	•	Compromised orchestration cannot forge settlement
+	•	Smart contracts independently verify authorization
+	•	Full auditability across:
+	•	AWS logs
+	•	Chainlink CRE workflow runs
+	•	on-chain events
+
+RESULT
+
+This design creates a clean, scalable bridge between traditional finance messaging systems and on-chain tokenized assets that is:
+	•	format-agnostic
+	•	institution-grade
+	•	cryptographically enforceable
+	•	auditable end-to-end
+	•	compatible with future cross-chain expansion

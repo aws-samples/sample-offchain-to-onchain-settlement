@@ -1,0 +1,9 @@
+{
+  "schedule": "*/10 * * * * *",
+  "awsApiBase": "https://<api-id>.execute-api.us-east-1.amazonaws.com/prod",
+  "receiverAddress": "0x<SettlementConsumerAddress>",
+  "chainSelector": 16015286601757825753,
+  "chainId": 11155111,
+  "gasLimit": 1200000,
+  "workflowRunId": "production"
+}

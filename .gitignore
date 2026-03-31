@@ -1,0 +1,33 @@
+# Build artifacts
+out/
+cache/
+*.wasm
+
+# CDK
+infra/cdk.out/
+infra/__pycache__/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Go
+cre/go.sum
+
+# Environment
+.env
+cre/.env
+
+# CRE config (contains deployed addresses)
+cre/settlement-workflow/config.staging.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+lib/forge-std/
+broadcast/
+.DS_Store
+.kiro

@@ -1,0 +1,179 @@
+@startuml architecture
+!theme plain
+skinparam backgroundColor #FEFEFE
+skinparam componentStyle rectangle
+skinparam linetype ortho
+skinparam shadowing false
+
+' Give ortho routing enough room
+skinparam nodesep 55
+skinparam ranksep 45
+skinparam ArrowThickness 1
+skinparam defaultTextAlignment left
+
+left to right direction
+
+title Financial Messages On-Chain Settlement\nRepository Architecture
+
+' =========================
+' External actors
+' =========================
+actor "Financial System\n(SWIFT, ISO 20022)" as FS #LightBlue
+actor "Admin" as ADMIN #LightGray
+
+' =========================
+' AWS Cloud
+' =========================
+package "AWS Cloud" as AWS #E8F4FD {
+
+  package "API Layer" as AWS_API {
+    component "API Gateway" as APIGW #FFE4B5
+    component "API Key" as APIKEY #FFE4B5
+
+    note top of APIGW
+      Endpoints
+      • POST /messages
+      • GET  /instructions/pending
+      • POST /instructions/{id}/status
+    end note
+  }
+
+  package "Compute" as AWS_COMPUTE {
+    component "Lambda\n(aws/app.py)" as LAMBDA #FFA07A
+    note right of LAMBDA
+      Internals
+      • Message Parser
+      • CSI Builder (aws/csi.py)
+      • KMS Signer (aws/kms_signer.py)
+      • Crypto Utils (aws/crypto.py)
+    end note
+  }
+
+  package "Storage" as AWS_STORAGE {
+    database "DynamoDB" as DDB #98FB98
+    storage "S3\nRaw Messages" as S3 #87CEEB
+
+    note right of DDB
+      Tables
+      • Instructions
+      • Idempotency
+      • Audit
+    end note
+  }
+
+  package "Security" as AWS_SEC {
+    component "KMS\nsecp256k1 Key" as KMS #DDA0DD
+  }
+
+  package "Infrastructure as Code" as AWS_IAC {
+    component "CDK Stack\n(infra/settlement_stack.py)" as CDK #D3D3D3
+  }
+}
+
+' =========================
+' Chainlink CRE
+' =========================
+package "Chainlink CRE" as CRE_PKG #FFF3E0 {
+  component "Settlement Workflow\n(cre/settlement-workflow/main.go)" as WORKFLOW #FFD700
+  component "DON\n(Decentralized Oracle Network)" as DON #FFD700
+  component "KeystoneForwarder" as FORWARDER #FFD700
+
+  note bottom of WORKFLOW
+    Responsibilities
+    • Cron trigger
+    • Poll pending instructions
+    • Build DON report
+    • Submit to EVM
+    • Update instruction status
+  end note
+}
+
+' =========================
+' Blockchain (EVM)
+' =========================
+package "Blockchain (EVM)" as CHAIN #E8F5E9 {
+  component "KeyRegistry.sol" as KEYREG #90EE90
+  component "SettlementConsumer.sol" as CONSUMER #90EE90
+  component "Token.sol" as TOKEN #90EE90
+
+  note right of KEYREG
+    Signer allowlist
+    • addSigner()
+    • removeSigner()
+    • isAuthorized()
+  end note
+
+  note right of CONSUMER
+    Settlement logic
+    • onReport()
+    • settle()
+    • EIP-712 verify
+    • Idempotency check
+  end note
+
+  note right of TOKEN
+    ERC20-like
+    • mint()
+    • burn()
+    • Minter-controlled
+  end note
+}
+
+' =========================
+' Layout helpers (hidden links)
+' These stop PlantUML from stacking awkwardly.
+' =========================
+APIGW -[hidden]-> APIKEY
+APIKEY -[hidden]-> LAMBDA
+LAMBDA -[hidden]-> DDB
+DDB -[hidden]-> KMS
+
+WORKFLOW -[hidden]-> DON
+DON -[hidden]-> FORWARDER
+
+CONSUMER -[hidden]-> KEYREG
+CONSUMER -[hidden]-> TOKEN
+
+' =========================
+' Flows (keep edge labels SHORT)
+' =========================
+
+' Ingress
+FS --> APIGW : POST /messages
+
+' Auth / invoke
+APIGW --> APIKEY : validate
+APIKEY --> LAMBDA : invoke
+
+' Storage + signing (short verbs only)
+LAMBDA --> S3  : store raw
+LAMBDA --> DDB : read/write
+LAMBDA --> KMS : sign (EIP-712)
+
+' CRE interactions with AWS (no long labels on edges)
+WORKFLOW --> APIGW : poll + update
+
+' On-chain submission
+WORKFLOW --> DON : build report
+DON --> FORWARDER : DON-signed
+FORWARDER --> CONSUMER : onReport()
+
+' On-chain checks/effects
+CONSUMER --> KEYREG : verify signer
+CONSUMER --> TOKEN  : mint/burn
+
+' Admin controls
+ADMIN --> KEYREG : rotate signer
+ADMIN --> CONSUMER : setForwarder()
+
+legend right
+  |= Group |= What it contains |
+  | API Layer | API Gateway + API Key |
+  | Compute | Lambda message processing + signing |
+  | Storage | DynamoDB tables + S3 archive |
+  | Security | KMS signing key |
+  | Chainlink CRE | Workflow + DON + Forwarder |
+  | Blockchain | KeyRegistry + Consumer + Token |
+endlegend
+
+@enduml

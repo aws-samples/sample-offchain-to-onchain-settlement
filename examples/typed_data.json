@@ -1,0 +1,45 @@
+{
+  "types": {
+    "EIP712Domain": [
+      {"name": "name", "type": "string"},
+      {"name": "version", "type": "string"},
+      {"name": "chainId", "type": "uint256"},
+      {"name": "verifyingContract", "type": "address"}
+    ],
+    "CanonicalSettlementInstruction": [
+      {"name": "instructionId", "type": "bytes32"},
+      {"name": "messageDigest", "type": "bytes32"},
+      {"name": "asset", "type": "address"},
+      {"name": "amount", "type": "uint256"},
+      {"name": "fromParty", "type": "address"},
+      {"name": "toParty", "type": "address"},
+      {"name": "valueTime", "type": "uint64"},
+      {"name": "createdAt", "type": "uint64"},
+      {"name": "expiry", "type": "uint64"},
+      {"name": "intent", "type": "uint8"},
+      {"name": "chainId", "type": "uint256"},
+      {"name": "nonce", "type": "bytes32"}
+    ]
+  },
+  "primaryType": "CanonicalSettlementInstruction",
+  "domain": {
+    "name": "SettlementInstruction",
+    "version": "1",
+    "chainId": 11155111,
+    "verifyingContract": "0x9999999999999999999999999999999999999999"
+  },
+  "message": {
+    "instructionId": "0x27a1b831fe34477fed6ecb5f9195f70921cd8f62054d915f62756cdf474e3ccc",
+    "messageDigest": "0xfed72c6198b38d4560a5d87b4770be8b23d4427464d236b4d1d394a1d0dce9ab",
+    "asset": "0x1111111111111111111111111111111111111111",
+    "amount": "100000000",
+    "fromParty": "0x2222222222222222222222222222222222222222",
+    "toParty": "0x3333333333333333333333333333333333333333",
+    "valueTime": 1735689600,
+    "createdAt": 1735600000,
+    "expiry": 1735603600,
+    "intent": 0,
+    "chainId": 11155111,
+    "nonce": "0xf48a9ec8320134207b1e9030bce88d683ea50527fd9c978d880bb0dcd1b97db0"
+  }
+}

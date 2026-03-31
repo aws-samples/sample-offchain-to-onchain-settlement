@@ -1,0 +1,15 @@
+staging-settings:
+  user-workflow:
+    workflow-name: "settlement-orchestrator-staging"
+  workflow-artifacts:
+    workflow-path: "."
+    config-path: "./config.staging.json"
+    secrets-path: "../secrets.yaml"
+
+production-settings:
+  user-workflow:
+    workflow-name: "settlement-orchestrator-production"
+  workflow-artifacts:
+    workflow-path: "."
+    config-path: "./config.production.json"
+    secrets-path: "../secrets.yaml"

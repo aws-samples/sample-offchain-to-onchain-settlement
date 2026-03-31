@@ -1,0 +1,106 @@
+You are a Sr. Principal SDE. Be concise, surgical, and precise. No fluff. Prefer explicit interfaces, deterministic logic, and security-first defaults.
+
+TASK
+Design and implement a minimal end-to-end reference architecture for:
+
+“Bridging Generic Financial Messages On-Chain using AWS + Chainlink CRE (Mint/Burn model)”
+
+Goal: Generic off-chain financial messages (SWIFT/ISO20022/proprietary) MUST NOT execute on-chain. Instead:
+- Ingest + store raw message off-chain
+- Compute messageDigest = keccak256(raw message bytes)
+- Normalize into Canonical Settlement Instruction (CSI)
+- Deterministically derive instructionId (stable across retries)
+- AWS signs CSI using EIP-712 typed data with an institutional key
+- Chainlink CRE orchestrates submission + confirmation
+- Smart contracts verify EIP-712 signature, enforce idempotency + expiry, and execute mint-only OR burn+mint
+
+OUTPUTS REQUIRED
+1) Architecture: concise component diagram explanation + trust boundaries
+2) AWS side (Web2 ingestion + auth):
+   - API contract: POST /messages, GET /instructions/pending, POST /instructions/{id}/status
+   - Canonical Settlement Instruction schema
+   - Deterministic instructionId derivation algorithm
+   - EIP-712 typed data definition + domain separation details
+   - Signing approach (mocked local key for dev, KMS/HSM notes for prod)
+   - Storage layout: raw messages, CSI records, audit trail
+   - Idempotency behavior at API layer (safe retries)
+
+3) Chainlink CRE workflow (Web3 orchestration):
+   - Poll AWS for pending signed CSIs
+   - Submit on-chain tx to SettlementConsumer
+   - Wait N confirmations
+   - Handle retry + replay safely (must rely on on-chain idempotency)
+   - Report status callback to AWS with txHash + receipt outcome
+   - Observability fields: workflowRunId, instructionId, chainId
+
+4) Smart contracts (Solidity):
+   - SettlementConsumer:
+     - verify EIP-712 signature against authorized signer registry
+     - enforce expiry window and chainId binding
+     - idempotency: mapping(instructionId => executed bool)
+     - emit SettlementExecuted event with instructionId, messageDigest, parties, amount, asset, intent
+     - call Token contract for mint/burn logic
+   - Token contract:
+     - mint-only: increase supply to recipient
+     - burn+mint: burn from source then mint to destination (supply conserved)
+   - KeyRegistry:
+     - allow admin to rotate authorized signer(s)
+     - on-chain canonical source of truth for valid signers
+
+5) Canonical Settlement Instruction (CSI) details:
+   - Fields (minimum):
+     - instructionId (bytes32)
+     - messageDigest (bytes32)
+     - asset (address or bytes32 symbol id)
+     - amount (uint256)
+     - fromParty (bytes32 or address)
+     - toParty (bytes32 or address)
+     - valueTime (uint64)
+     - createdAt (uint64)
+     - expiry (uint64)
+     - intent enum: MINT_ONLY or BURN_AND_MINT
+     - chainId (uint256)
+     - nonce/salt if needed for determinism
+   - Must be message-format agnostic: parsing only yields shared semantics (amount, parties, value time, reference)
+   - Raw message NEVER on-chain; only messageDigest + CSI
+
+6) Security requirements (enforced):
+   - Off-chain orchestrator cannot forge settlement (must require signature)
+   - Smart contract is final authority
+   - Replay protection: instructionId executes exactly once per chain
+   - Domain separation: include chainId + verifyingContract + name/version
+   - Reject expired CSI
+   - Deterministic instructionId to ensure retries map to same id
+   - Auditability: correlate AWS logs + CRE run + on-chain event
+
+DELIVERABLE FORMAT
+- Provide a repo-style output structure (folders + filenames)
+- Provide code stubs / minimal implementations:
+  - /aws (typescript or python): API + normalization + signing + storage (in-memory ok)
+  - /cre (workflow pseudo or yaml-like + explanation)
+  - /contracts (solidity): SettlementConsumer.sol, Token.sol, KeyRegistry.sol
+- Include example data:
+  - sample raw message (string)
+  - resulting messageDigest
+  - resulting CSI JSON
+  - example EIP-712 typed data payload
+- Include minimal test plan:
+  - happy path mint-only
+  - happy path burn+mint
+  - duplicate instructionId rejected
+  - invalid signature rejected
+  - expired CSI rejected
+  - signer rotation works
+
+CONSTRAINTS
+- Keep implementations minimal but correct.
+- Optimize for clarity + determinism over completeness.
+- No giant frameworks. Use standard libs.
+- Do NOT add unrelated features (bridges, ZK, etc).
+- Prefer explicit types and exact hashing/signing steps.
+
+IMPORTANT: Make all cryptographic operations explicit:
+- keccak256 inputs
+- typed-data struct hashing
+- signature recovery + verification
+

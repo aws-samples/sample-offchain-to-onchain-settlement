@@ -1,0 +1,158 @@
+@startuml end-to-end-settlement-flow
+!theme plain
+skinparam backgroundColor #FEFEFE
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+
+title Financial Message to On-Chain Settlement\nEnd-to-End Flow (with Idempotency)
+
+actor "Financial System" as FS #LightBlue
+box "AWS (Web2 Layer)" #E8F4FD
+    participant "Ingestion API" as API
+    participant "Normalizer" as NORM
+    participant "KMS Signer" as KMS
+    database "DynamoDB" as DDB
+    database "S3" as S3
+end box
+
+box "Chainlink CRE (Web3 Orchestration)" #FFF3E0
+    participant "CRE Workflow" as CRE
+end box
+
+box "Blockchain (Source of Truth)" #E8F5E9
+    participant "KeyRegistry" as KEYS
+    participant "SettlementConsumer" as SC
+    participant "Token" as TOKEN
+end box
+
+== 1. Message Ingestion (AWS) ==
+FS -> API : Send financial message\n(e.g., SWIFT MT103)
+activate API
+API -> S3 : Store raw message off-chain
+API -> API : Compute messageDigest\n(keccak256 hash)
+API --> FS : Acknowledge receipt
+deactivate API
+
+== 2. Normalization & Idempotency Check (AWS) ==
+API -> NORM : Forward message + digest
+activate NORM
+NORM -> NORM : Extract semantic fields:\n• amount\n• parties\n• value time\n• reference
+NORM -> NORM : Create Canonical Settlement Instruction (CSI)
+
+note right of NORM #FFFACD
+  **AWS Idempotency Key Derivation:**
+  keccak256(
+    "CSI_IDEMPOTENCY_V1" ||
+    messageDigest ||
+    asset || amount ||
+    fromParty || toParty ||
+    valueTime || intent ||
+    chainId || referenceHash
+  )
+end note
+
+NORM -> DDB : Check idempotency key exists?
+alt Idempotency Key EXISTS (duplicate request)
+    DDB --> NORM : Return existing instructionId
+    NORM --> API : Return existing CSI\n(no duplicate created)
+    API --> FS : 200 OK (existing instruction)
+else Idempotency Key NOT FOUND (new request)
+    DDB --> NORM : Key not found
+    NORM -> NORM : Derive deterministic instructionId
+    NORM -> DDB : Store idempotency mapping\n+ CSI (status: PENDING)
+end
+deactivate NORM
+
+== 3. Institutional Signing (AWS) ==
+NORM -> KMS : Request EIP-712 signature
+activate KMS
+
+note right of KMS #FFFACD
+  **EIP-712 Domain:**
+  name = "SettlementInstruction"
+  version = "1"
+  chainId = <target chain>
+  verifyingContract = <SettlementConsumer>
+end note
+
+KMS -> KMS : Sign CSI with\ninstitutional key (HSM)
+KMS --> NORM : Return signature (v, r, s)
+deactivate KMS
+NORM -> DDB : Store signed CSI\n(status: PENDING)
+
+== 4. Workflow Execution (Chainlink CRE) ==
+CRE -> API : GET /instructions/pending
+activate CRE
+API -> DDB : Query status=PENDING
+DDB --> API : Return pending CSIs
+API --> CRE : Return signed CSI batch
+
+CRE -> CRE : Encode CSI + signature\ninto DON report
+CRE -> SC : Submit via KeystoneForwarder\nonReport(report)
+activate SC
+
+== 5. On-Chain Settlement (Smart Contracts) ==
+SC -> SC : Verify caller is KeystoneForwarder
+SC -> KEYS : Verify signer is authorized
+KEYS --> SC : Signer valid ✓
+
+SC -> SC : Verify EIP-712 signature
+SC -> SC : Check block.timestamp <= expiry
+SC -> SC : Check chainId == block.chainid
+
+note right of SC #FFE4E1
+  **On-Chain Idempotency Check:**
+  require(!executed[instructionId],
+    "ALREADY_EXECUTED");
+end note
+
+SC -> SC : Check executed[instructionId] == false
+
+alt instructionId ALREADY EXECUTED (replay attempt)
+    SC --> CRE : Revert: "ALREADY_EXECUTED"
+    CRE -> API : POST /instructions/{id}/status\n(status: FAILED, reason: duplicate)
+    API -> DDB : Update status: FAILED
+else instructionId NOT EXECUTED (valid)
+    SC -> SC : executed[instructionId] = true
+
+    alt intent == MINT_ONLY (Issuance)
+        SC -> TOKEN : mint(toParty, amount)
+        TOKEN --> SC : Mint complete
+    else intent == BURN_AND_MINT (Reallocation)
+        SC -> TOKEN : burn(fromParty, amount)
+        TOKEN --> SC : Burn complete
+        SC -> TOKEN : mint(toParty, amount)
+        TOKEN --> SC : Mint complete
+    else intent == BURN_ONLY (Redemption)
+        SC -> TOKEN : burn(fromParty, amount)
+        TOKEN --> SC : Burn complete
+    end
+
+    SC -> SC : Emit SettlementExecuted event
+    SC --> CRE : Transaction confirmed (txHash)
+    deactivate SC
+
+    CRE -> API : POST /instructions/{id}/status\n(status: CONFIRMED, txHash)
+    deactivate CRE
+    API -> DDB : Update status: CONFIRMED\n+ txHash
+end
+
+== Idempotency Summary ==
+
+note over FS, TOKEN
+  **Two-Layer Idempotency Protection:**
+
+  **Layer 1 - AWS (DynamoDB):**
+  • Idempotency key computed from CSI content
+  • Duplicate API calls return existing instruction
+  • Enables safe retries on timeout/failure
+
+  **Layer 2 - On-Chain (Solidity):**
+  • mapping(bytes32 => bool) executed
+  • Each instructionId settles exactly once
+  • Protects against CRE retries or duplicate triggers
+
+  **Result:** Safe end-to-end retries at every layer
+end note
+
+@enduml
