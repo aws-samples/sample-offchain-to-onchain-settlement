@@ -1,0 +1,38 @@
+name: Test Matrix
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+jobs:
+  automated-tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [solidity-unit, python-unit, e2e-smoke]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Foundry
+        if: matrix.suite == 'solidity-unit' || matrix.suite == 'e2e-smoke'
+        uses: foundry-rs/foundry-toolchain@v1
+      - name: Setup Python
+        if: matrix.suite == 'python-unit'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Python dependencies
+        if: matrix.suite == 'python-unit'
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r aws/requirements.txt pytest
+      - name: Run Solidity unit tests
+        if: matrix.suite == 'solidity-unit'
+        run: forge test --match-test "test_(forwarder_only|replay_reverts|bad_signer_reverts|expired_reverts)"
+      - name: Run Python unit tests (CSI + API validation)
+        if: matrix.suite == 'python-unit'
+        run: PYTHONPATH=aws pytest -q tests/aws
+      - name: Run end-to-end happy path smoke test
+        if: matrix.suite == 'e2e-smoke'
+        run: forge test --match-test test_end_to_end_happy_path_smoke -vv
