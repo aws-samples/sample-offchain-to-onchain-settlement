@@ -27,7 +27,6 @@ cre/settlement-workflow/config.staging.json
 .idea/
 .vscode/
 *.swp
-lib/forge-std/
 broadcast/
 .DS_Store
 .kiro
