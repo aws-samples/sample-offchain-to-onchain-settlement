@@ -81,7 +81,7 @@ When switching chains, update these root `.env` values **together** before runni
 
 References:
 - Chain selectors + CRE chain names: https://docs.chain.link/cre/reference/sdk/evm-client-go#chain-selectors
-- KeystoneForwarder addresses by network: https://docs.chain.link/cre/reference/contract-addresses
+- KeystoneForwarder addresses by network: https://docs.chain.link/cre/reference/contract-addresses](https://docs.chain.link/cre/guides/workflow/using-evm-client/forwarder-directory-ts#simulation-forwarders
 
 ## Running
 
